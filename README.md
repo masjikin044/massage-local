@@ -1,4 +1,4 @@
-# LOCAL MASSAGE
+# === LOCAL MASSAGE ===
 
 
 ### ** SEBELUM ITU RUBAH DOCKERFILE JIKA MAU DI DELPLOY LEWAT DOCKER YANG DI INSTALL DIDEBIAN
@@ -151,4 +151,38 @@ akses port :3002 (Grafana untuk DevOps)
 user : admin
 password : adminops
 ```
+### UNTUK TEST KALAU LANGSUNG LEWAT TEMINAL VScode YANG UDAH ADA CODENYA INI MELALUI
+```
+http://localhost:3000
+http://localhost:3001
+http://localhost:3002
+```
+### UNTUK YANG DOCKER YANG DIINSTALL LEWAT DEBIAN SESUAIKAN IP PADA DEBIAN TERSEBUT
+untuk cek ip pada debian lewat terminal
+`ip a`
+### CONTOH UNTUK LEWAT DEBIAN
+192.168.X.X:3000
+192.168.X.X:3001
+192.168.X.X:3002
+
+### === UNTUK INSTALL DOCKER LEWAT LINUX DEBIAN ===
+LAKUKAN UPDATE
+`sudo apt update`
+`sudo apt install git -y`
+`sudo apt install curl -y`
+INSTALL DOCKER UBUNTU
+`curl -fsSL https://get.docker.com | sudo sh`
+INSTALL DOCKER DEBIAN
+`curl -fsSL https://get.docker.com | sh`
+TEST APAKAH BERHASIL
+`docker version`
+`docker compose version`
+TEST DOCKER
+`docker run --rm hello-world`
+KALAU BERHASIL MUNCUL
+`Hello from Docker!`
+
+
+
+
 By Akhsanul and zorcaa
