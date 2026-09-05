@@ -16,7 +16,9 @@ EXPOSE 5000
 CMD ["node", "server.js"]
 ```
 ### ** SAMA DOCKER COMPOSE JUGA HARUS DI RUBAH KALAU PAKAI DEBIAN
-`nano docker-compose.yml`
+```
+nano docker-compose.yml
+```
 ### UBAH FILE DI BAWAH INI
 ```
 services:
