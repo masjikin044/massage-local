@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <title>Terminal Messaging App</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Fira Code', 'Courier New', monospace; }
+        body { background: #0d1117; color: #c9d1d9; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+        
+        /* macOS Window Container */
+        .window { width: 100%; max-width: 650px; background: #161b22; border-radius: 10px; border: 1px solid #30363d; box-shadow: 0 20px 50px rgba(0,0,0,0.6); overflow: hidden; }
+        .titlebar { background: #21262d; padding: 12px; display: flex; align-items: center; border-bottom: 1px solid #30363d; }
+        .buttons { display: flex; gap: 8px; }
+        .btn { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+        .close { background: #ff5f56; } .minimize { background: #ffbd2e; } .maximize { background: #27c93f; }
+        .title { margin-left: auto; margin-right: auto; color: #8b949e; font-size: 13px; font-weight: bold; }
+
+        .content { padding: 20px; }
+        .input-group { margin-bottom: 12px; }
+        input { width: 100%; background: #0d1117; border: 1px solid #30363d; color: #58a6ff; padding: 10px; border-radius: 6px; outline: none; font-family: inherit; }
+        input:focus { border-color: #1f6feb; }
+        
+        .btn-action { background: #238636; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%; margin-top: 5px; }
+        .btn-action:hover { background: #2ea043; }
+        .btn-alt { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; }
+        .btn-alt:hover { background: #30363d; }
+
+        /* Terminal Chat Area */
+        #chatBox { height: 250px; overflow-y: auto; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 12px; margin-bottom: 15px; }
+        .msg-item { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 4px 0; border-bottom: 1px dashed #21262d; }
+        .msg-text { color: #e6edf3; font-size: 13px; }
+        .msg-text b { color: #7ee787; }
+        .msg-text i { color: #79c0ff; }
+        .btn-del { background: transparent; color: #f85149; border: none; cursor: pointer; font-size: 11px; padding: 2px 6px; }
+        .btn-del:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+<div class="window">
+    <div class="titlebar">
+        <div class="buttons">
+            <span class="btn close"></span>
+            <span class="btn minimize"></span>
+            <span class="btn maximize"></span>
+        </div>
+        <div class="title">bash -- user@macbook: ~/messenger</div>
+    </div>
+    
+    <div class="content">
+        <div id="authBox">
+            <div class="input-group"><input type="text" id="username" placeholder="$ enter_username"></div>
+            <div class="input-group"><input type="email" id="email" placeholder="$ enter_email"></div>
+            <div class="input-group"><input type="password" id="password" placeholder="$ enter_password"></div>
+            <button class="btn-action" onclick="login()">$ sudo login</button>
+            <button class="btn-action btn-alt" onclick="register()">$ sudo register</button>
+        </div>
+
+        <div id="msgBox" style="display:none;">
+            <p id="welcomeMsg" style="color:#7ee787; margin-bottom: 10px;"></p>
+            <div id="chatBox"></div>
+            <div class="input-group"><input type="text" id="receiver" placeholder="target_user"></div>
+            <div class="input-group"><input type="text" id="text" placeholder="type_message..."></div>
+            <button class="btn-action" onclick="sendMessage()">$ send_message</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentUser = null;
+    const API = 'http://' + window.location.hostname + ':5000/api';
+
+    async function register() {
+        const res = await fetch(`${API}/register`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                username: document.getElementById('username').value,
+                email: document.getElementById('email').value,
+                password: document.getElementById('password').value
+            })
+        });
+        const data = await res.json();
+        alert(data.message);
+    }
+
+    async function login() {
+        const res = await fetch(`${API}/login`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                email: document.getElementById('email').value,
+                password: document.getElementById('password').value
+            })
+        });
+        const data = await res.json();
+        if (res.ok) {
+            currentUser = data.username;
+            document.getElementById('authBox').style.display = 'none';
+            document.getElementById('msgBox').style.display = 'block';
+            document.getElementById('welcomeMsg').innerText = `[SUCCESS] Logged in as: ${currentUser}`;
+            loadMessages();
+            setInterval(loadMessages, 3000);
+        } else {
+            alert(data.message);
+        }
+    }
+
+    async function sendMessage() {
+        await fetch(`${API}/messages`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                sender: currentUser,
+                receiver: document.getElementById('receiver').value,
+                text: document.getElementById('text').value
+            })
+        });
+        document.getElementById('text').value = '';
+        loadMessages();
+    }
+
+    async function loadMessages() {
+        const res = await fetch(`${API}/messages`);
+        const messages = await res.json();
+        const chatBox = document.getElementById('chatBox');
+        chatBox.innerHTML = messages.map(m => `
+            <div class="msg-item">
+                <span class="msg-text"><b>${m.sender}</b> -> <i>${m.receiver}</i>: ${m.text}</span>
+                <button class="btn-del" onclick="deleteMessage(${m.id})">[rm -rf]</button>
+            </div>
+        `).join('');
+    }
+
+    async function deleteMessage(id) {
+        await fetch(`${API}/messages/${id}`, { method: 'DELETE' });
+        loadMessages();
+    }
+</script>
+</body>
+</html>
