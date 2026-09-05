@@ -1,7 +1,7 @@
 ### UNTUK MENJALAN KAN 
-  docker-compose up -d --build
+  docker compose up -d --build
 ### UNTUK UNTUK MENSTOP SETEALAH BERJALAN
- docker-compose down
+ docker compose down
 ### UNTUK TEST BISA LANGSAUNG KEBROWSER
 akses port :3000 (User)
 
