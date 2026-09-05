@@ -2,119 +2,236 @@
 <html lang="id">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Admin Dashboard - Local Message</title>
-  <style>
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      background-color: #1e1e2f;
-      color: #fff;
-      padding: 15px;
-    }
-    .container {
-      width: 100%;
-      max-width: 1000px;
-      margin: 0 auto;
-    }
-    header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 20px;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-    h1 {
-      font-size: 1.4rem;
-      color: #4e73df;
-    }
-    /* Scroll horizontal otomatis jika tabel terlalu lebar di HP */
-    .table-responsive {
-      width: 100%;
-      overflow-x: auto;
-      background: #27293d;
-      border-radius: 8px;
-      padding: 10px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      text-align: left;
-      min-width: 500px; /* Menjaga ukuran kolom minimal */
-    }
-    th, td {
-      padding: 12px;
-      border-bottom: 1px solid #383a59;
-    }
-    th {
-      background-color: #1d1e2c;
-      color: #8f92a1;
-    }
-    @media (min-width: 600px) {
-      h1 {
-        font-size: 1.8rem;
-      }
-      body {
-        padding: 30px;
-      }
-    }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DevOps Message - Admin Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-<body>
-  <div class="container">
-    <header>
-      <h1>⚙️ Admin Dashboard</h1>
-      <button onclick="loadLogs()" style="padding: 8px 15px; border-radius: 5px; background: #4e73df; color: #fff; border: none; cursor: pointer;">Refresh</button>
-    </header>
+<body class="bg-slate-900 text-white min-h-screen">
+  <div id="adminApp" class="flex min-h-screen">
+    <!-- Sidebar -->
+    <aside class="w-64 bg-slate-800 border-r border-slate-700 p-4 flex flex-col justify-between">
+      <div>
+        <h2 class="text-xl font-bold text-indigo-400 mb-8">Admin Control</h2>
+        <nav class="space-y-2">
+          <button onclick="switchTab('dashboard')" class="w-full text-left px-4 py-2 rounded bg-slate-700 hover:bg-slate-600 transition">Dashboard</button>
+          <button onclick="switchTab('users')" class="w-full text-left px-4 py-2 rounded hover:bg-slate-700 transition">User Terdaftar</button>
+          <button onclick="switchTab('messages')" class="w-full text-left px-4 py-2 rounded hover:bg-slate-700 transition">Manajemen Pesan</button>
+          <button onclick="switchTab('audit')" class="w-full text-left px-4 py-2 rounded hover:bg-slate-700 transition">Audit Log</button>
+        </nav>
+      </div>
+      <button onclick="logoutAdmin()" class="w-full bg-red-600 hover:bg-red-700 py-2 rounded font-semibold transition">Logout</button>
+    </aside>
 
-    <div class="table-responsive">
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Pesan</th>
-            <th>Waktu</th>
-          </tr>
-        </thead>
-        <tbody id="adminTable">
-          <tr>
-            <td colspan="3">Memuat data...</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <!-- Main Content -->
+    <main class="flex-1 p-8 overflow-y-auto">
+      <!-- Admin Login Overlay -->
+      <div id="adminLoginModal" class="fixed inset-0 bg-slate-900 flex items-center justify-center p-4 z-50">
+        <form onsubmit="handleAdminLogin(event)" class="bg-slate-800 p-8 rounded-lg max-w-md w-full border border-slate-700 space-y-4">
+          <h2 class="text-2xl font-bold text-center text-indigo-400">Admin Login</h2>
+          <div>
+            <label class="block text-sm mb-1">Email / Username</label>
+            <input type="text" id="adminEmail" required class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2">
+          </div>
+          <div>
+            <label class="block text-sm mb-1">Password</label>
+            <input type="password" id="adminPassword" required class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2">
+          </div>
+          <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 py-2 rounded font-semibold">Masuk Dashboard</button>
+        </form>
+      </div>
+
+      <!-- Section: Dashboard -->
+      <section id="tab-dashboard" class="space-y-6">
+        <h1 class="text-2xl font-bold">System Statistics</h1>
+        <!-- Stat Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div class="bg-slate-800 p-4 rounded-lg border border-slate-700">
+            <span class="text-slate-400 text-sm">TOTAL USER</span>
+            <p id="statTotalUsers" class="text-3xl font-bold mt-1 text-indigo-400">0</p>
+          </div>
+          <div class="bg-slate-800 p-4 rounded-lg border border-slate-700">
+            <span class="text-slate-400 text-sm">TOTAL PESAN</span>
+            <p id="statTotalMessages" class="text-3xl font-bold mt-1 text-green-400">0</p>
+          </div>
+          <div class="bg-slate-800 p-4 rounded-lg border border-slate-700">
+            <span class="text-slate-400 text-sm">USER AKTIF</span>
+            <p id="statActiveUsers" class="text-3xl font-bold mt-1 text-blue-400">0</p>
+          </div>
+          <div class="bg-slate-800 p-4 rounded-lg border border-slate-700">
+            <span class="text-slate-400 text-sm">USER SUSPENDED</span>
+            <p id="statSuspendedUsers" class="text-3xl font-bold mt-1 text-red-400">0</p>
+          </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="bg-slate-800 p-4 rounded-lg border border-slate-700">
+            <h3 class="font-bold mb-4">Pertumbuhan User (7 Hari)</h3>
+            <canvas id="chartUserGrowth"></canvas>
+          </div>
+          <div class="bg-slate-800 p-4 rounded-lg border border-slate-700">
+            <h3 class="font-bold mb-4">Aktivitas Pesan (7 Hari)</h3>
+            <canvas id="chartMessageActivity"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- Section: Users Table -->
+      <section id="tab-users" class="space-y-4 hidden">
+        <h1 class="text-2xl font-bold">User Terdaftar</h1>
+        <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-slate-700 text-slate-300">
+              <tr>
+                <th class="p-3">ID</th>
+                <th class="p-3">Username</th>
+                <th class="p-3">Email</th>
+                <th class="p-3">Role</th>
+                <th class="p-3">Status</th>
+                <th class="p-3">Aksi</th>
+              </tr>
+            </thead>
+            <tbody id="adminUserTable" class="divide-y divide-slate-700"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Section: Audit Log -->
+      <section id="tab-audit" class="space-y-4 hidden">
+        <h1 class="text-2xl font-bold">Audit Log System</h1>
+        <div class="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-slate-700 text-slate-300">
+              <tr>
+                <th class="p-3">Waktu</th>
+                <th class="p-3">Admin</th>
+                <th class="p-3">Aksi</th>
+                <th class="p-3">Deskripsi</th>
+                <th class="p-3">IP Address</th>
+              </tr>
+            </thead>
+            <tbody id="adminAuditTable" class="divide-y divide-slate-700"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
   </div>
 
   <script>
-    const API_URL = '/api';
+    let adminToken = localStorage.getItem('adminToken');
 
-    async function loadLogs() {
+    if (adminToken) {
+      document.getElementById('adminLoginModal').classList.add('hidden');
+      loadDashboardData();
+    }
+
+    async function handleAdminLogin(e) {
+      e.preventDefault();
+      const email = document.getElementById('adminEmail').value;
+      const password = document.getElementById('adminPassword').value;
+
       try {
-        const res = await fetch(`${API_URL}/messages`);
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
         const data = await res.json();
-        const tbody = document.getElementById('adminTable');
-        if(data.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="3">Tidak ada data log.</td></tr>';
-          return;
-        }
-        tbody.innerHTML = data.map((item, idx) => `
-          <tr>
-            <td>${item.id || idx + 1}</td>
-            <td>${item.content || item.text || item}</td>
-            <td>${item.created_at ? new Date(item.created_at).toLocaleString() : 'Baru saja'}</td>
-          </tr>
-        `).join('');
+        if (!res.ok || data.user.role !== 'admin') throw new Error(data.error || 'Bukan akun Admin.');
+
+        adminToken = data.token;
+        localStorage.setItem('adminToken', adminToken);
+        document.getElementById('adminLoginModal').classList.add('hidden');
+        loadDashboardData();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function loadDashboardData() {
+      try {
+        const statsRes = await fetch('/api/admin/stats', {
+          headers: { 'Authorization': `Bearer ${adminToken}` }
+        });
+        const stats = await statsRes.json();
+        document.getElementById('statTotalUsers').innerText = stats.totalUsers;
+        document.getElementById('statTotalMessages').innerText = stats.totalMessages;
+        document.getElementById('statActiveUsers').innerText = stats.activeUsers;
+        document.getElementById('statSuspendedUsers').innerText = stats.suspendedUsers;
+
+        loadCharts();
+        loadUsersTable();
+        loadAuditTable();
       } catch (err) {
         console.error(err);
       }
     }
 
-    loadLogs();
+    async function loadCharts() {
+      const growthRes = await fetch('/api/admin/user-growth?days=7', { headers: { 'Authorization': `Bearer ${adminToken}` } });
+      const growthData = await growthRes.json();
+
+      new Chart(document.getElementById('chartUserGrowth'), {
+        type: 'line',
+        data: {
+          labels: growthData.map(d => new Date(d.date).toLocaleDateString()),
+          datasets: [{ label: 'User Baru', data: growthData.map(d => d.count), borderColor: '#818cf8' }]
+        }
+      });
+    }
+
+    async function loadUsersTable() {
+      const res = await fetch('/api/admin/users', { headers: { 'Authorization': `Bearer ${adminToken}` } });
+      const data = await res.json();
+      const tbody = document.getElementById('adminUserTable');
+      tbody.innerHTML = data.users.map(u => `
+        <tr>
+          <td class="p-3">${u.id}</td>
+          <td class="p-3">${u.username}</td>
+          <td class="p-3">${u.email}</td>
+          <td class="p-3">${u.role}</td>
+          <td class="p-3"><span class="px-2 py-1 text-xs rounded ${u.status === 'active' ? 'bg-green-600' : 'bg-red-600'}">${u.status}</span></td>
+          <td class="p-3">
+            ${u.status === 'active' ? `<button onclick="kickUser(${u.id})" class="px-2 py-1 bg-red-600 rounded text-xs">Kick</button>` : ''}
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function kickUser(id) {
+      if (!confirm('Apakah Anda yakin ingin menendang/nonaktifkan user ini?')) return;
+      await fetch(`/api/admin/users/${id}/kick`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${adminToken}` }
+      });
+      loadUsersTable();
+    }
+
+    async function loadAuditTable() {
+      const res = await fetch('/api/admin/audit-logs', { headers: { 'Authorization': `Bearer ${adminToken}` } });
+      const logs = await res.json();
+      const tbody = document.getElementById('adminAuditTable');
+      tbody.innerHTML = logs.map(l => `
+        <tr>
+          <td class="p-3">${new Date(l.created_at).toLocaleString()}</td>
+          <td class="p-3">${l.admin_name || 'System'}</td>
+          <td class="p-3">${l.action}</td>
+          <td class="p-3">${l.description}</td>
+          <td class="p-3">${l.ip_address}</td>
+        </tr>
+      `).join('');
+    }
+
+    function switchTab(tab) {
+      document.querySelectorAll('main > section').forEach(s => s.classList.add('hidden'));
+      document.getElementById(`tab-${tab}`).classList.remove('hidden');
+    }
+
+    function logoutAdmin() {
+      localStorage.removeItem('adminToken');
+      window.location.reload();
+    }
   </script>
 </body>
 </html>
