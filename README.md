@@ -2,7 +2,10 @@
 
 
 ### ** SEBELUM ITU RUBAH DOCKERFILE JIKA MAU DI DELPLOY LEWAT DOCKER YANG DI INSTALL DIDEBIAN
-`nano backend/Dockerfile`
+```
+nano backend/Dockerfile
+```
+### ISI DENGAN INI
 ```
 FROM node:18-alpine
 WORKDIR /app
@@ -159,24 +162,36 @@ http://localhost:3002
 ```
 ### UNTUK YANG DOCKER YANG DIINSTALL LEWAT DEBIAN SESUAIKAN IP PADA DEBIAN TERSEBUT
 untuk cek ip pada debian lewat terminal
-`ip a`
+```
+ip a
+```
 ### CONTOH UNTUK LEWAT DEBIAN
+```
 192.168.X.X:3000
 192.168.X.X:3001
 192.168.X.X:3002
+```
 
 ### === UNTUK INSTALL DOCKER LEWAT LINUX DEBIAN ===
 LAKUKAN UPDATE
-`sudo apt update`
-`sudo apt install git -y`
-`sudo apt install curl -y`
+```
+sudo apt update
+sudo apt install git -y
+sudo apt install curl -y
+```
 INSTALL DOCKER UBUNTU
-`curl -fsSL https://get.docker.com | sudo sh`
+```
+curl -fsSL https://get.docker.com | sudo sh
+```
 INSTALL DOCKER DEBIAN
-`curl -fsSL https://get.docker.com | sh`
+```
+curl -fsSL https://get.docker.com | sh
+```
 TEST APAKAH BERHASIL
-`docker version`
-`docker compose version`
+```
+docker version
+docker compose version
+```
 TEST DOCKER
 `docker run --rm hello-world`
 KALAU BERHASIL MUNCUL
