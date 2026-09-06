@@ -66,6 +66,7 @@ services:
       REDIS_PORT: ${REDIS_PORT}
       JWT_SECRET: ${JWT_SECRET}
       ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
     depends_on:
       postgres:
@@ -155,6 +156,8 @@ services:
     image: prom/prometheus:v2.49.1
     container_name: devops_prometheus
     restart: always
+    ports:
+      - "9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - ./prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml

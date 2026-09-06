@@ -116,17 +116,44 @@ async function initDb() {
       );
     `);
 
-    // Seed default admin account
+    // Seed / Sinkronisasi akun admin dari .env
+    // Kalau container Postgres sudah pernah jalan sebelumnya (volume lama), baris admin
+    // lama tetap ada di DB dan tidak ter-insert ulang -> makanya ditambahkan logic
+    // sinkronisasi di bawah supaya email/username/password admin SELALU mengikuti .env
+    // terbaru, tidak "nyangkut" di data lama.
     const adminUser = process.env.ADMIN_USERNAME || 'admin';
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@devops.local';
     const adminPass = process.env.ADMIN_PASSWORD || 'adminops';
-    const checkAdmin = await pool.query('SELECT * FROM users WHERE username = $1', [adminUser]);
+
+    const checkAdmin = await pool.query(
+      "SELECT * FROM users WHERE username = $1 OR role = 'admin' LIMIT 1",
+      [adminUser]
+    );
+
     if (checkAdmin.rows.length === 0) {
       const hash = await bcrypt.hash(adminPass, 10);
       await pool.query(
         'INSERT INTO users (username, email, password_hash, role, status) VALUES ($1, $2, $3, $4, $5)',
-        [adminUser, 'admin@devops.local', hash, 'admin', 'active']
+        [adminUser, adminEmail, hash, 'admin', 'active']
       );
       console.log('Seeded default admin account successfully.');
+    } else {
+      const existingAdmin = checkAdmin.rows[0];
+      const passMatches = await bcrypt.compare(adminPass, existingAdmin.password_hash);
+      const needsSync = existingAdmin.username !== adminUser
+        || existingAdmin.email !== adminEmail
+        || !passMatches
+        || existingAdmin.role !== 'admin'
+        || existingAdmin.status !== 'active';
+
+      if (needsSync) {
+        const hash = await bcrypt.hash(adminPass, 10);
+        await pool.query(
+          "UPDATE users SET username = $1, email = $2, password_hash = $3, role = 'admin', status = 'active' WHERE id = $4",
+          [adminUser, adminEmail, hash, existingAdmin.id]
+        );
+        console.log('Admin account synced with current .env credentials.');
+      }
     }
   } catch (err) {
     console.error('Database Init Failed:', err);
@@ -155,10 +182,10 @@ function authenticateToken(req, res, next) {
   jwt.verify(token, process.env.JWT_SECRET || 'secret', async (err, user) => {
     if (err) return res.status(403).json({ error: 'Token tidak valid atau kedaluwarsa.' });
 
-    // Verify if user is suspended
+    // Verify if user is suspended atau sudah dihapus (soft delete)
     const checkUser = await pool.query('SELECT status FROM users WHERE id = $1', [user.id]);
-    if (checkUser.rows.length === 0 || checkUser.rows[0].status === 'suspended') {
-      return res.status(403).json({ error: 'Akun Anda dinonaktifkan/suspended.' });
+    if (checkUser.rows.length === 0 || checkUser.rows[0].status === 'suspended' || checkUser.rows[0].status === 'deleted') {
+      return res.status(403).json({ error: 'Akun Anda dinonaktifkan/suspended/sudah dihapus.' });
     }
 
     req.user = user;
@@ -217,6 +244,7 @@ app.post('/api/auth/register', async (req, res) => {
     );
 
     res.status(201).json({ message: 'Registrasi berhasil.', user: newUser.rows[0] });
+    io.emit('admin:update', { type: 'user_registered' });
   } catch (err) {
     res.status(500).json({ error: 'Terjadi kesalahan server.' });
   }
@@ -225,14 +253,17 @@ app.post('/api/auth/register', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
   try {
-    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-    if (result.rows.length === 0) return res.status(400).json({ error: 'Email atau password salah.' });
+    // Bisa login pakai email ATAU username (mis. admin login dengan "admin", bukan "admin@devops.local")
+    const result = await pool.query('SELECT * FROM users WHERE email = $1 OR username = $1', [email]);
+    if (result.rows.length === 0) return res.status(400).json({ error: 'Email/Username atau password salah.' });
 
     const user = result.rows[0];
-    if (user.status === 'suspended') return res.status(403).json({ error: 'Akun Anda dinonaktifkan/suspended.' });
+    if (user.status === 'suspended' || user.status === 'deleted') {
+      return res.status(403).json({ error: 'Akun Anda dinonaktifkan/suspended/sudah dihapus.' });
+    }
 
     const validPass = await bcrypt.compare(password, user.password_hash);
-    if (!validPass) return res.status(400).json({ error: 'Email atau password salah.' });
+    if (!validPass) return res.status(400).json({ error: 'Email/Username atau password salah.' });
 
     await pool.query('UPDATE users SET last_activity = NOW() WHERE id = $1', [user.id]);
     const token = jwt.sign(
@@ -251,8 +282,21 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/users', authenticateToken, async (req, res) => {
   const search = req.query.search || '';
   try {
+    // role != 'admin' -> admin disembunyikan dari daftar kontak biasa,
+    // KECUALI sudah pernah ada percakapan (mis. admin pernah kirim pesan peringatan) -> tetap muncul supaya bisa dibuka/dibalas
     const users = await pool.query(
-      'SELECT id, username, email, status, last_activity FROM users WHERE id != $1 AND username ILIKE $2 AND status = \'active\' ORDER BY username ASC',
+      `SELECT id, username, email, status, last_activity 
+       FROM users 
+       WHERE id != $1 AND username ILIKE $2 AND status = 'active'
+         AND (
+           role != 'admin'
+           OR EXISTS (
+             SELECT 1 FROM messages m
+             WHERE (m.sender_id = $1 AND m.receiver_id = users.id)
+                OR (m.sender_id = users.id AND m.receiver_id = $1)
+           )
+         )
+       ORDER BY username ASC`,
       [req.user.id, `%${search}%`]
     );
     res.json(users.rows);
@@ -306,6 +350,7 @@ app.post('/api/messages', authenticateToken, async (req, res) => {
     };
 
     io.emit(`chat_${receiver_id}`, fullMsg);
+    io.emit('admin:update', { type: 'message_sent' });
     res.status(201).json(fullMsg);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -334,6 +379,7 @@ app.delete('/api/messages/:id', authenticateToken, async (req, res) => {
     }
 
     io.emit('message_deleted', { id: messageId });
+    io.emit('admin:update', { type: 'message_deleted' });
     res.json({ message: 'Pesan berhasil dihapus.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -404,14 +450,18 @@ app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) =>
   const search = req.query.search || '';
 
   try {
+    // status != 'deleted' -> user yang sudah dihapus (soft-delete) tidak lagi tampil di daftar admin
     const users = await pool.query(
       `SELECT id, username, email, role, status, created_at, last_activity 
        FROM users 
-       WHERE username ILIKE $1 OR email ILIKE $1 
+       WHERE (username ILIKE $1 OR email ILIKE $1) AND status != 'deleted'
        ORDER BY id DESC LIMIT $2 OFFSET $3`,
       [`%${search}%`, limit, offset]
     );
-    const total = await pool.query('SELECT COUNT(*) FROM users WHERE username ILIKE $1 OR email ILIKE $1', [`%${search}%`]);
+    const total = await pool.query(
+      "SELECT COUNT(*) FROM users WHERE (username ILIKE $1 OR email ILIKE $1) AND status != 'deleted'",
+      [`%${search}%`]
+    );
 
     res.json({ users: users.rows, total: parseInt(total.rows[0].count), page, limit });
   } catch (err) {
@@ -422,8 +472,16 @@ app.get('/api/admin/users', authenticateToken, requireAdmin, async (req, res) =>
 app.post('/api/admin/users/:id/kick', authenticateToken, requireAdmin, async (req, res) => {
   const userId = req.params.id;
   try {
-    await pool.query('UPDATE users SET status = \'suspended\' WHERE id = $1', [userId]);
+    // role != 'admin' -> mencegah admin menendang akun admin lain (termasuk dirinya sendiri)
+    const result = await pool.query(
+      "UPDATE users SET status = 'suspended' WHERE id = $1 AND role != 'admin' RETURNING id",
+      [userId]
+    );
+    if (result.rowCount === 0) {
+      return res.status(400).json({ error: 'User tidak ditemukan atau tidak bisa menonaktifkan akun admin.' });
+    }
     await logAudit(req.user.id, 'KICK_USER', 'user', userId, 'Admin menonaktifkan/menendang user', req.ip);
+    io.emit('admin:update', { type: 'user_kicked' });
     res.json({ message: 'User berhasil dinonaktifkan/kicked.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -436,7 +494,30 @@ app.patch('/api/admin/users/:id/status', authenticateToken, requireAdmin, async 
   try {
     await pool.query('UPDATE users SET status = $1 WHERE id = $2', [status, userId]);
     await logAudit(req.user.id, 'UPDATE_STATUS', 'user', userId, `Status user diubah menjadi ${status}`, req.ip);
+    io.emit('admin:update', { type: 'user_status_changed' });
     res.json({ message: `Status user berhasil diubah menjadi ${status}.` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Hapus user (soft delete) - HANYA untuk user yang sedang berstatus suspended.
+// Datanya tidak dihapus permanen dari database (status diubah jadi 'deleted') supaya
+// riwayat pesan lawan bicaranya tetap utuh dan tidak melanggar foreign key.
+app.delete('/api/admin/users/:id', authenticateToken, requireAdmin, async (req, res) => {
+  const userId = req.params.id;
+  try {
+    const target = await pool.query('SELECT id, role, status FROM users WHERE id = $1', [userId]);
+    if (target.rows.length === 0) return res.status(404).json({ error: 'User tidak ditemukan.' });
+    if (target.rows[0].role === 'admin') return res.status(403).json({ error: 'Akun admin tidak bisa dihapus.' });
+    if (target.rows[0].status !== 'suspended') {
+      return res.status(400).json({ error: 'Hanya user berstatus suspended yang bisa dihapus. Kick/suspend user ini terlebih dahulu.' });
+    }
+
+    await pool.query("UPDATE users SET status = 'deleted' WHERE id = $1", [userId]);
+    await logAudit(req.user.id, 'DELETE_USER', 'user', userId, 'Admin menghapus (soft-delete) user', req.ip);
+    io.emit('admin:update', { type: 'user_deleted' });
+    res.json({ message: 'User berhasil dihapus.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -476,6 +557,65 @@ app.get('/api/admin/audit-logs', authenticateToken, requireAdmin, async (req, re
        ORDER BY a.created_at DESC LIMIT 50`
     );
     res.json(logs.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Reset password user (admin tidak pernah bisa "melihat" password asli - hash bcrypt satu arah,
+// jadi yang disediakan adalah set password BARU, bukan menampilkan yang lama)
+app.patch('/api/admin/users/:id/password', authenticateToken, requireAdmin, async (req, res) => {
+  const userId = req.params.id;
+  const { newPassword, confirmPassword } = req.body;
+
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ error: 'Password baru minimal 6 karakter.' });
+  }
+  if (newPassword !== confirmPassword) {
+    return res.status(400).json({ error: 'Konfirmasi password tidak sesuai.' });
+  }
+
+  try {
+    const target = await pool.query('SELECT id, username FROM users WHERE id = $1', [userId]);
+    if (target.rows.length === 0) return res.status(404).json({ error: 'User tidak ditemukan.' });
+
+    const hash = await bcrypt.hash(newPassword, 10);
+    await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, userId]);
+    await logAudit(req.user.id, 'RESET_PASSWORD', 'user', userId, `Admin mereset password user ${target.rows[0].username}`, req.ip);
+
+    res.json({ message: 'Password user berhasil direset.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Broadcast pesan peringatan admin ke SEMUA user aktif (non-admin).
+// Diselipkan lewat tabel messages yang sudah ada (sender_id = admin) supaya
+// muncul langsung di kotak chat masing-masing user tanpa perlu tabel baru.
+app.post('/api/admin/broadcast', authenticateToken, requireAdmin, async (req, res) => {
+  const { message } = req.body;
+  if (!message || !message.trim()) {
+    return res.status(400).json({ error: 'Isi pesan wajib diisi.' });
+  }
+
+  try {
+    const targets = await pool.query(
+      "SELECT id, username FROM users WHERE role != 'admin' AND status = 'active'"
+    );
+
+    for (const target of targets.rows) {
+      const inserted = await pool.query(
+        'INSERT INTO messages (sender_id, receiver_id, message) VALUES ($1, $2, $3) RETURNING *',
+        [req.user.id, target.id, message]
+      );
+      totalMessagesCounter.inc();
+      io.emit(`chat_${target.id}`, { ...inserted.rows[0], sender_name: req.user.username });
+    }
+
+    await logAudit(req.user.id, 'BROADCAST_MESSAGE', 'user', null, `Admin mengirim pesan peringatan ke ${targets.rows.length} user`, req.ip);
+    io.emit('admin:update', { type: 'broadcast_sent' });
+
+    res.json({ message: `Pesan berhasil dikirim ke ${targets.rows.length} user.` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

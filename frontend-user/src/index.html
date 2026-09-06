@@ -80,6 +80,9 @@
     </div>
   </div>
 
+  <!-- Toast Notifikasi Pesan Baru -->
+  <div id="toastContainer" class="fixed top-4 right-4 z-[60] space-y-2 w-72"></div>
+
   <!-- Delete Modal -->
   <div id="deleteModal" class="hidden fixed inset-0 bg-black/60 flex items-center justify-center p-4">
     <div class="bg-slate-800 p-6 rounded-lg max-w-sm w-full border border-slate-700">
@@ -169,8 +172,14 @@
       document.getElementById('userInfo').classList.add('flex');
       document.getElementById('userNameDisplay').innerText = currentUser.username;
 
+      // Minta izin notifikasi browser (aman dipanggil berkali-kali, browser hanya nanya sekali)
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+
       socket = io({ path: '/socket.io' });
       socket.on(`chat_${currentUser.id}`, (msg) => {
+        notifyNewMessage(msg);
         if (activeChatUser && (msg.sender_id === activeChatUser.id || msg.receiver_id === activeChatUser.id)) {
           appendMessage(msg);
         }
@@ -181,6 +190,46 @@
       });
 
       loadUsers();
+    }
+
+    // Notifikasi setiap kali user menerima pesan baru
+    function notifyNewMessage(msg) {
+      const isViewingThisChat = activeChatUser && msg.sender_id === activeChatUser.id && !document.hidden;
+      const preview = msg.message.length > 60 ? msg.message.slice(0, 60) + '...' : msg.message;
+
+      // Toast di dalam halaman (selalu tampil, tidak perlu izin browser)
+      if (!isViewingThisChat) {
+        showToast(msg.sender_name, preview);
+      }
+
+      // Notifikasi native browser saat tab tidak sedang aktif/fokus
+      if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+        const notif = new Notification(`Pesan baru dari ${msg.sender_name}`, { body: preview });
+        notif.onclick = () => window.focus();
+      }
+    }
+
+    function showToast(title, body) {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = 'bg-slate-800 border border-indigo-500 rounded-lg shadow-lg p-4 transition-opacity duration-300';
+      const safeTitle = escapeHtml(title);
+      const safeBody = escapeHtml(body);
+      toast.innerHTML = `
+        <p class="font-semibold text-indigo-400 text-sm">💬 ${safeTitle}</p>
+        <p class="text-slate-300 text-sm mt-1">${safeBody}</p>
+      `;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 4000);
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.innerText = str;
+      return div.innerHTML;
     }
 
     async function loadUsers() {
@@ -230,9 +279,10 @@
       const div = document.createElement('div');
       div.id = `msg-${msg.id}`;
       div.className = `flex flex-col ${isMe ? 'items-end' : 'items-start'}`;
-      
+
       div.innerHTML = `
         <div class="max-w-xs md:max-w-md p-3 rounded-lg ${isMe ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-200'} relative group">
+          ${!isMe && msg.sender_name ? `<span class="text-[11px] font-semibold text-indigo-300 block mb-1">${escapeHtml(msg.sender_name)}</span>` : ''}
           <p class="msg-text text-sm">${msg.deleted_at ? 'Pesan ini telah dihapus.' : msg.message}</p>
           <span class="text-[10px] opacity-70 block text-right mt-1">${new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
           ${isMe && !msg.deleted_at ? `<button onclick="openDeleteModal(${msg.id})" class="text-xs text-red-300 hover:text-red-100 mt-1 block">Hapus</button>` : ''}
