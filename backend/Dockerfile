@@ -1,10 +1,13 @@
-FROM node:18-slim
+FROM node:18-alpine
 
-WORKDIR /usr/src/app
+WORKDIR /app
 
 COPY package*.json ./
 
-RUN npm install --omit=dev --no-audit --no-fund --legacy-peer-deps
+# Menambahkan konfigurasi timeout agar npm install di Debian tidak gagal/stuck
+RUN npm config set fetch-retry-maxtimeout 120000 \
+    && npm config set fetch-retry-mintimeout 20000 \
+    && npm install --network-timeout=100000
 
 COPY . .
 

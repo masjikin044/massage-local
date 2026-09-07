@@ -1,194 +1,86 @@
 version: '3.8'
 
-networks:
-  frontend-net:
-    driver: bridge
-  backend-net:
-    driver: bridge
-  monitoring-net:
-    driver: bridge
-
-volumes:
-  postgres_data:
-  redis_data:
-  prometheus_data:
-  grafana_data:
-
 services:
-  # --- DATABASE & CACHE ---
+  backend:
+    build: ./backend
+    container_name: devops_backend
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - DATABASE_URL=postgresql://user:password@postgres:5432/devops_db
+      - REDIS_URL=redis://redis:6379
+    # Otomatis menyalin .env.example jika .env belum ada sebelum server berjalan
+    command: >
+      sh -c "test -f .env || cp .env.example .env 2>/dev/null || true; node server.js"
+    depends_on:
+      - postgres
+      - redis
+    restart: always
+
+  frontend-user:
+    build: ./frontend-user
+    container_name: devops_frontend_user
+    ports:
+      - "3000:80"
+    restart: always
+
+  frontend-admin:
+    build: ./frontend-admin
+    container_name: devops_frontend_admin
+    ports:
+      - "3001:80"
+    restart: always
+
   postgres:
     image: postgres:15-alpine
     container_name: devops_postgres
-    restart: always
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: devops_db
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - backend-net
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+    restart: always
 
   redis:
-    image: redis:7-alpine
+    image: redis:alpine
     container_name: devops_redis
-    restart: always
-    volumes:
-      - redis_data:/data
-    networks:
-      - backend-net
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # --- BACKEND API ---
-  backend:
-    build:
-      context: ./backend
-    container_name: devops_backend
-    restart: always
-    environment:
-      NODE_ENV: ${NODE_ENV}
-      PORT: ${PORT}
-      DATABASE_HOST: postgres
-      DATABASE_PORT: ${DATABASE_PORT}
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      REDIS_HOST: redis
-      REDIS_PORT: ${REDIS_PORT}
-      JWT_SECRET: ${JWT_SECRET}
-      ADMIN_USERNAME: ${ADMIN_USERNAME}
-      ADMIN_EMAIL: ${ADMIN_EMAIL}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - backend-net
-      - monitoring-net
-    healthcheck:
-      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:5000/health', (r) => {if (r.statusCode !== 200) process.exit(1);})\""]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
-  # --- FRONTENDS ---
-  frontend-user:
-    build:
-      context: ./frontend-user
-    container_name: devops_frontend_user
-    restart: always
-    networks:
-      - frontend-net
-
-  frontend-admin:
-    build:
-      context: ./frontend-admin
-    container_name: devops_frontend_admin
-    restart: always
-    networks:
-      - frontend-net
-
-  # --- REVERSE PROXY ---
-  nginx:
-    build:
-      context: ./nginx
-    container_name: devops_nginx
-    restart: always
     ports:
-      - "3000:3000"
-      - "3001:3001"
-      - "3002:3002"
+      - "6379:6379"
+    restart: always
+
+  nginx:
+    build: ./nginx
+    container_name: devops_nginx
+    ports:
+      - "80:80"
     depends_on:
+      - backend
       - frontend-user
       - frontend-admin
-      - backend
-      - grafana
-    networks:
-      - frontend-net
-      - backend-net
-      - monitoring-net
-
-  # --- MONITORING STACK ---
-  node-exporter:
-    image: prom/node-exporter:v1.7.0
-    container_name: devops_node_exporter
     restart: always
-    volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/rootfs:ro
-    command:
-      - '--path.procfs=/host/proc'
-      - '--path.rootfs=/rootfs'
-      - '--path.sysfs=/host/sys'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
-    networks:
-      - monitoring-net
-
-  cadvisor:
-    image: gcr.io/cadvisor/cadvisor:v0.47.2
-    container_name: devops_cadvisor
-    restart: always
-    privileged: true
-    devices:
-      - /dev/kmsg
-    volumes:
-      - /:/rootfs:ro
-      - /var/run:/var/run:ro
-      - /sys:/sys:ro
-      - /var/lib/docker/:/var/lib/docker:ro
-      - /dev/disk/:/dev/disk:ro
-    networks:
-      - monitoring-net
 
   prometheus:
-    image: prom/prometheus:v2.49.1
+    image: prom/prometheus:latest
     container_name: devops_prometheus
-    restart: always
-    ports:
-      - "9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
       - ./prometheus/alert.rules.yml:/etc/prometheus/alert.rules.yml
-      - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
-      - '--web.console.templates=/usr/share/prometheus/consoles'
-    networks:
-      - monitoring-net
-
-  alertmanager:
-    image: prom/alertmanager:v0.26.0
-    container_name: devops_alertmanager
+    ports:
+      - "9090:9090"
     restart: always
-    volumes:
-      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
-    networks:
-      - monitoring-net
 
   grafana:
-    image: grafana/grafana:10.3.1
+    image: grafana/grafana:latest
     container_name: devops_grafana
-    restart: always
-    environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
-      - GF_USERS_ALLOW_SIGN_UP=false
+    ports:
+      - "3002:3000"
     volumes:
-      - grafana_data:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
-    networks:
-      - monitoring-net
+    restart: always
+
+volumes:
+  postgres_data:
